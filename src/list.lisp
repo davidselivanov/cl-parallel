@@ -88,6 +88,33 @@
                     :from-end from-end)
        item))
 
+(defun par-position-if (pred xs &key (max-threads 4) (from-end nil))
+  "Given a predicate and a list, will return the position of the first element
+   in the list that satisfies that predicate."
+  (let* ((len (length xs))
+         (part (max 1 (ceiling (/ len max-threads)))))
+    (labels ((result (running)
+               (if (null running) nil
+                   (let ((val (realize (car running))))
+                     (if val val
+                         (result (cdr running))))))
+             (recur (to-do running n)
+               (if (or (parallel:future-finished-p (car running)) (null to-do)) (result running)
+                   (recur (nthcdr part to-do)
+                          (append running
+                                  (list (future (let ((res (position-if pred to-do
+                                                                        :end (min (length to-do) part))))
+                                                  (if res (+ n res) nil)))))
+                          (+ n part)))))
+      (recur (if from-end (reverse xs) xs) nil 0))))
+
+(defun par-position (item xs &key (max-threads 4) from-end)
+  "Given an item and a list, will return the position of the item if it is found, nil
+   otherwise."
+  (par-position-if (lambda (x) (eq x item)) xs
+                   :max-threads max-threads
+                   :from-end from-end))
+
 (defun par-map-reduce (map-fn reduce-fn xs &key (max-threads 4) (sleep-time 0) initial-value)
   "Given a mapping function, reducing function, and list, will map the values
    accross the list in parallel, then reduce them in the order that the
